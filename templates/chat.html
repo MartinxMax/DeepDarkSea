@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Deep Dark Sea</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
+    <script src="{{ url_for('static', filename='src/socket.io.min.js') }}"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Helvetica Neue', sans-serif;
+            background: #f4f6f8;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #chatArea {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+        #fileList {
+            flex: 1;
+            border-left: 2px solid #e0e0e0;
+            background: #fff;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        #messages {
+            flex: 1;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            overflow-y: scroll;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 10px;
+            background: #f0f0f0;
+        }
+        .message strong {
+            color: #333;
+        }
+        #inputArea {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        #myMessage {
+            flex: 1;
+            padding: 12px;
+            border-radius: 30px;
+            border: 1px solid #ccc;
+            outline: none;
+            font-size: 16px;
+            background: #fafafa;
+            transition: background 0.3s;
+        }
+        #myMessage:focus {
+            background: #ffffff;
+            border-color: #4CAF50;
+        }
+        #sendBtn, #uploadBtn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #sendBtn:hover, #uploadBtn:hover {
+            background-color: #45a049;
+        }
+        #uploadBtn {
+            width: 50px;
+            text-align: center;
+            padding: 10px;
+        }
+        h1, h2 {
+            margin-top: 0;
+        }
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        li {
+            margin-bottom: 10px;
+        }
+        a {
+            text-decoration: none;
+            color: #2196F3;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        #fileInput {
+            display: none;
+        }
+        #logoutBtn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #logoutBtn:hover {
+            background-color: #e53935;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="chatArea"> 
+        <h1>💬 Anonymous forum</h1>
+
+        <div id="messages"></div>
+
+        <div id="inputArea">
+            <input id="myMessage" autocomplete="off" placeholder="Type a message..." onkeydown="handleKeyPress(event)">
+            <button id="uploadBtn" onclick="selectFile()">+</button>
+            <button id="sendBtn" onclick="sendMessage()">Send</button>
+            <input type="file" id="fileInput" onchange="uploadFile()">
+        </div>
+    </div>
+
+    <div id="fileList">
+        <h2>📁 Public Files</h2>
+        <ul id="files"></ul>
+    </div>
+
+    <!-- Logout Button -->
+    <button id="logoutBtn" onclick="window.location.href='/logout'">Logout</button>
+
+    <script>
+        var socket = io();
+        var originalTitle = document.title; 
+        var newMessageTitle = "You have a new message!";  
+    
+        socket.on('connect', function() {
+            console.log('Connected to server');
+            loadFiles();
+        });
+    
+        socket.on('message', function(msgData) {
+            var messages = document.getElementById('messages');
+            var newMsg = document.createElement('div');
+            newMsg.classList.add('message');
+            newMsg.innerHTML = `
+                <strong>${msgData.username}</strong> 
+                <small>(${msgData.ip})</small>
+                <small>${msgData.datetime} (${msgData.weekday})</small>
+                <br>
+                ${msgData.message} <br>
+            `;
+            messages.appendChild(newMsg);
+            messages.scrollTop = messages.scrollHeight;
+    
+            if (document.hidden) {
+                startTitleBlinking();  
+            }
+        });
+    
+        // 接收到文件更新事件时刷新文件列表
+        socket.on('file_updated', function() {
+            loadFiles();  // 重新加载文件列表
+        });
+    
+        function sendMessage() {
+            var input = document.getElementById('myMessage');
+            var msg = input.value;
+            if (msg.trim() !== '') {
+                socket.emit('send_message', msg);
+                input.value = '';
+            }
+        }
+    
+        function selectFile() {
+            document.getElementById('fileInput').click();
+        }
+    
+        function uploadFile() {
+            var fileInput = document.getElementById('fileInput');
+            if (fileInput.files.length === 0) return;
+    
+            var formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+    
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    fileInput.value = '';
+                    socket.emit('file_updated');  // 通知服务器文件已更新，广播给所有客户端
+                    console.log('File uploaded successfully');
+                } else {
+                    console.error('Upload failed');
+                }
+            });
+        }
+    
+        function loadFiles() {
+            fetch('/files')
+                .then(response => response.json())
+                .then(data => {
+                    var filesList = document.getElementById('files');
+                    filesList.innerHTML = '';
+                    data.files.forEach(function(file) {
+                        var li = document.createElement('li');
+                        var link = document.createElement('a');
+                        link.href = '/uploads/' + file;
+                        link.textContent = file;
+                        link.target = '_blank';
+                        li.appendChild(link);
+                        filesList.appendChild(li);
+                    });
+                });
+        }
+    
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+    
+        function startTitleBlinking() {
+            var blinkTitle = setInterval(function() {
+                document.title = document.title === newMessageTitle ? originalTitle : newMessageTitle;
+            }, 1000);
+    
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) {
+                    document.title = originalTitle;  
+                    clearInterval(blinkTitle);  
+                }
+            });
+        }
+    </script>
+    
+
+</body>
+</html>
