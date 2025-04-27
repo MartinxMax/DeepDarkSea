@@ -51,6 +51,8 @@ Administrator > .\dds.exe
 
 ---
 
+https://github.com/MartinxMax/DeepDarkSea/releases/tag/DDS-v1-for-windows
+
 ![alt text](./pic/image-6.png)
 
  
